@@ -19,8 +19,11 @@
   #dot.live { background: #3fb950; } #dot.busy { background: #d29922; } #dot.err { background: #f85149; }
   #scroller { position: absolute; top: 37px; bottom: 0; left: 0; right: 0; overflow: auto; }
   .pages { padding: 12px 0; }
-  .page { margin: 0 auto 12px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); position: relative; }
-  .page canvas { display: block; }
+  .page { margin: 0 auto 12px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); position: relative; overflow: hidden; }
+  .page canvas { display: block; position: absolute; top: 0; left: 0; }
+  .textLayer { position: absolute; text-align: initial; inset: 0; overflow: clip; opacity: 1; line-height: 1; text-size-adjust: none; transform-origin: 0 0; z-index: 2; user-select: text; -webkit-user-select: text; }
+  .textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+  .textLayer ::selection { background: rgba(0, 100, 255, 0.35); }
   #msg { padding: 24px; color: var(--muted-foreground, #999); white-space: pre-wrap; }
 </style>
 </head>
@@ -119,6 +122,22 @@ async function renderPage(p) {
   p.canvas.height = Math.floor(p.vp.height * dpr);
   p.task = p.page.render({ canvasContext: p.canvas.getContext('2d'), viewport: p.vp,
                            transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+  
+  // Render selectable text layer on top of canvas
+  if (pdfjs.TextLayer && p.textDiv) {
+    try {
+      const textContentSource = p.page.streamTextContent({ includeMarkedContent: true });
+      const textLayer = new pdfjs.TextLayer({
+        textContentSource,
+        container: p.textDiv,
+        viewport: p.vp
+      });
+      await textLayer.render();
+    } catch (err) {
+      console.warn('TextLayer render error:', err);
+    }
+  }
+
   try { await p.task.promise; } catch (e) { if (e?.name !== 'RenderingCancelledException') console.warn(e); }
 }
 
@@ -139,8 +158,13 @@ async function show(newDoc, pos) {
     el.style.width = vp.width + 'px'; el.style.height = vp.height + 'px';
     const canvas = document.createElement('canvas');
     canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
-    el.appendChild(canvas); container.appendChild(el);
-    list.push({ el, canvas, page, vp, rendered: false, task: null });
+    el.appendChild(canvas);
+    const textDiv = document.createElement('div');
+    textDiv.className = 'textLayer';
+    textDiv.style.width = vp.width + 'px'; textDiv.style.height = vp.height + 'px';
+    el.appendChild(textDiv);
+    container.appendChild(el);
+    list.push({ el, canvas, textDiv, page, vp, rendered: false, task: null });
   }
 
   // Pre-render the pages that will be visible, BEFORE swapping, so there is no blank flash.
