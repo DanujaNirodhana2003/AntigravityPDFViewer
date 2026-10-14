@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>PDF Viewer</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden;
+    background: var(--background, #1e1e1e); color: var(--foreground, #ddd);
+    font: 13px system-ui, sans-serif; }
+  #bar { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px;
+    border-bottom: 1px solid var(--border, #333); background: var(--sidebar, var(--background, #1e1e1e)); }
+  #bar button { background: var(--secondary, #2d2d2d); color: var(--foreground, #ddd);
+    border: 1px solid var(--border, #444); border-radius: 4px; min-width: 26px; height: 24px; cursor: pointer; }
+  #bar button:hover { background: var(--accent, #3a3a3a); }
+  #bar input { width: 38px; height: 20px; text-align: center; background: var(--background, #1e1e1e);
+    color: var(--foreground, #ddd); border: 1px solid var(--border, #444); border-radius: 4px; }
+  #name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground, #999); }
+  #dot { width: 8px; height: 8px; border-radius: 50%; background: #888; flex: none; }
+  #dot.live { background: #3fb950; } #dot.busy { background: #d29922; } #dot.err { background: #f85149; }
+  #scroller { position: absolute; top: 37px; bottom: 0; left: 0; right: 0; overflow: auto; }
+  .pages { padding: 12px 0; }
+  .page { margin: 0 auto 12px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); position: relative; }
+  .page canvas { display: block; }
+  #msg { padding: 24px; color: var(--muted-foreground, #999); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span id="dot" title="status"></span>
+  <span id="name">PDF Viewer</span>
+  <input id="pageIn" title="Page"> <span id="pageCount">/ 0</span>
+  <button id="zoomOut" title="Zoom out (-)">−</button>
+  <span id="zoomLbl">fit</span>
+  <button id="zoomIn" title="Zoom in (+)">+</button>
+  <button id="fit" title="Fit width (0)">↔</button>
+</div>
+<div id="scroller"><div id="msg">Loading…</div></div>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const scroller = $('scroller');
+const POLL_MS = 500;
+const GAP = 12, PAD = 24;
+
+// ---------- backend ----------
+async function api(name, body) {
+  const r = await fetch('api/' + name, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  if (!r.ok) throw new Error(`api/${name}: HTTP ${r.status}`);
+  return r.json();
+}
+
+// ---------- status ----------
+function status(kind, text) {
+  $('dot').className = kind;
+  $('dot').title = text || kind;
+}
+function showMessage(text) {
+  scroller.innerHTML = '';
+  const d = document.createElement('div'); d.id = 'msg'; d.textContent = text;
+  scroller.appendChild(d);
+}
+
+// ---------- PDF.js (bundled, loaded via blob URLs) ----------
+let pdfjs;
+async function loadPdfjs() {
+  const [lib, worker] = await Promise.all([api('vendor', { name: 'pdf' }), api('vendor', { name: 'worker' })]);
+  const blobUrl = (src) => URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
+  pdfjs = await import(blobUrl(lib.source));
+  pdfjs.GlobalWorkerOptions.workerSrc = blobUrl(worker.source);
+}
+
+// ---------- state ----------
+const params = new URLSearchParams(location.search);
+let file = params.get('file');
+let doc = null;            // current PDFDocumentProxy
+let pages = [];            // [{ el, canvas, page, vp, rendered, task }]
+let zoom = 'fit';          // 'fit' or a number
+let scale = 1;
+let loadedSig = null;      // "mtime:size" currently shown
+let pendingSig = null;     // change seen, waiting for it to be stable
+let failedSig = null;      // sig that failed to parse (don't retry until it changes)
+let busy = false;
+let observer = null;
+
+const sigOf = (s) => `${s.mtimeMs}:${s.size}`;
+const b64ToBytes = (b64) => { const bin = atob(b64); const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
+
+// ---------- position save/restore ----------
+function savePosition() {
+  if (!pages.length) return null;
+  const top = scroller.scrollTop;
+  let i = pages.findIndex((p) => p.el.offsetTop + p.el.offsetHeight > top);
+  if (i < 0) i = pages.length - 1;
+  const el = pages[i].el;
+  return { index: i, ratio: (top - el.offsetTop) / el.offsetHeight,
+           leftRatio: scroller.scrollWidth ? scroller.scrollLeft / scroller.scrollWidth : 0 };
+}
+function restorePosition(pos) {
+  if (!pos || !pages.length) return;
+  const p = pages[Math.min(pos.index, pages.length - 1)].el;
+  scroller.scrollTop = p.offsetTop + pos.ratio * p.offsetHeight;
+  scroller.scrollLeft = pos.leftRatio * scroller.scrollWidth;
+}
+
+// ---------- rendering ----------
+function computeScale(firstPage) {
+  if (zoom !== 'fit') return zoom;
+  const w = firstPage.getViewport({ scale: 1 }).width;
+  return Math.max(0.1, (scroller.clientWidth - PAD) / w);
+}
+
+async function renderPage(p) {
+  if (p.rendered) return;
+  p.rendered = true;
+  const dpr = window.devicePixelRatio || 1;
+  p.canvas.width = Math.floor(p.vp.width * dpr);
+  p.canvas.height = Math.floor(p.vp.height * dpr);
+  p.task = p.page.render({ canvasContext: p.canvas.getContext('2d'), viewport: p.vp,
+                           transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
+  try { await p.task.promise; } catch (e) { if (e?.name !== 'RenderingCancelledException') console.warn(e); }
+}
+
+/** Builds a full page list for `newDoc` and swaps it in without flicker. */
+async function show(newDoc, pos) {
+  const first = await newDoc.getPage(1);
+  scale = computeScale(first);
+  $('zoomLbl').textContent = zoom === 'fit' ? 'fit' : Math.round(scale * 100) + '%';
+
+  const container = document.createElement('div');
+  container.className = 'pages';
+  const list = [];
+  for (let i = 1; i <= newDoc.numPages; i++) {
+    const page = i === 1 ? first : await newDoc.getPage(i);
+    const vp = page.getViewport({ scale });
+    const el = document.createElement('div');
+    el.className = 'page'; el.dataset.index = i - 1;
+    el.style.width = vp.width + 'px'; el.style.height = vp.height + 'px';
+    const canvas = document.createElement('canvas');
+    canvas.style.width = vp.width + 'px'; canvas.style.height = vp.height + 'px';
+    el.appendChild(canvas); container.appendChild(el);
+    list.push({ el, canvas, page, vp, rendered: false, task: null });
+  }
+
+  // Pre-render the pages that will be visible, BEFORE swapping, so there is no blank flash.
+  const idx = pos ? Math.min(pos.index, list.length - 1) : 0;
+  await Promise.all(list.slice(Math.max(0, idx - 1), idx + 2).map(renderPage));
+
+  // Swap.
+  const oldPages = pages, oldDoc = doc;
+  observer?.disconnect();
+  scroller.replaceChildren(container);
+  pages = list; doc = newDoc;
+  restorePosition(pos);
+
+  observer = new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) renderPage(pages[+e.target.dataset.index]);
+  }, { root: scroller, rootMargin: '100% 0px' });
+  pages.forEach((p) => observer.observe(p.el));
+
+  $('pageCount').textContent = '/ ' + doc.numPages;
+  updatePageNumber();
+
+  oldPages.forEach((p) => p.task?.cancel());
+  if (oldDoc && oldDoc !== newDoc) oldDoc.destroy();
+}
+
+// ---------- loading / live reload ----------
+async function loadFromDisk() {
+  const r = await api('read', { file });
+  if (!r.ok) throw new Error(r.error);
+  const sig = sigOf(r);
+  let newDoc;
+  try {
+    newDoc = await pdfjs.getDocument({ data: b64ToBytes(r.base64) }).promise;
+  } catch (e) {
+    failedSig = sig;         // half-written or broken: keep showing the old version
+    throw new Error('Could not parse PDF (still being written?): ' + e.message);
+  }
+  await show(newDoc, savePosition());
+  loadedSig = sig; failedSig = null;
+}
+
+async function poll() {
+  if (busy || !file) return;
+  busy = true;
+  try {
+    const s = await api('stat', { file });
+    if (!s.ok) { status(doc ? 'busy' : 'err', s.error); if (!doc) showMessage('Waiting for file…\n' + s.error); return; }
+    const sig = sigOf(s);
+    if (sig === loadedSig || sig === failedSig) { status('live', 'Up to date'); return; }
+    // Changed. Only reload once it has been stable for one full poll AND has %%EOF.
+    if (sig === pendingSig && s.complete) {
+      status('busy', 'Reloading…');
+      await loadFromDisk();
+      status('live', 'Reloaded ' + new Date().toLocaleTimeString());
+    } else {
+      pendingSig = sig;
+      status('busy', 'File changing…');
+    }
+  } catch (e) {
+    console.warn(e);
+    status('err', String(e.message || e));
+    if (!doc) showMessage(String(e.message || e));
+  } finally {
+    busy = false;
+  }
+}
+
+// ---------- toolbar ----------
+function updatePageNumber() {
+  if (!pages.length) return;
+  const mid = scroller.scrollTop + scroller.clientHeight / 3;
+  let i = pages.findIndex((p) => p.el.offsetTop + p.el.offsetHeight > mid);
+  if (i < 0) i = pages.length - 1;
+  if (document.activeElement !== $('pageIn')) $('pageIn').value = i + 1;
+}
+function goToPage(n) {
+  const p = pages[Math.max(1, Math.min(n, pages.length)) - 1];
+  if (p) scroller.scrollTop = p.el.offsetTop - GAP;
+}
+async function setZoom(z) {
+  if (!doc) return;
+  zoom = z;
+  await show(doc, savePosition());
+}
+const step = (dir) => setZoom(Math.min(5, Math.max(0.25, +(scale * (dir > 0 ? 1.2 : 1 / 1.2)).toFixed(3))));
+
+$('zoomIn').onclick = () => step(1);
+$('zoomOut').onclick = () => step(-1);
+$('fit').onclick = () => setZoom('fit');
+$('pageIn').onchange = (e) => goToPage(parseInt(e.target.value, 10));
+scroller.addEventListener('scroll', updatePageNumber, { passive: true });
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  if (e.key === '+' || e.key === '=') step(1);
+  else if (e.key === '-') step(-1);
+  else if (e.key === '0') setZoom('fit');
+});
+scroller.addEventListener('wheel', (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault(); step(e.deltaY < 0 ? 1 : -1);
+}, { passive: false });
+
+let resizeTimer;
+new ResizeObserver(() => {
+  if (zoom !== 'fit' || !doc) return;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => show(doc, savePosition()), 150);
+}).observe(scroller);
+
+// ---------- host messages (theme, possible file switches) ----------
+window.addEventListener('message', (e) => {
+  const m = e.data || {};
+  if (m.type === 'theme-change' && m.payload?.cssVariables) {
+    for (const [k, v] of Object.entries(m.payload.cssVariables)) document.documentElement.style.setProperty(k, v);
+  }
+  const f = m.payload?.file;
+  if (typeof f === 'string' && f !== file) openFile(f);
+});
+
+// ---------- start ----------
+async function openFile(f) {
+  file = f;
+  loadedSig = pendingSig = failedSig = null;
+  const name = f.split(/[\\/]/).pop();
+  $('name').textContent = name; $('name').title = f; document.title = name;
+  status('busy', 'Loading…');
+  try { await loadFromDisk(); status('live', 'Up to date'); }
+  catch (e) { status('err', e.message); if (!doc) showMessage(e.message); }
+}
+
+try {
+  await loadPdfjs();
+  if (file) await openFile(file);
+  else showMessage('Click a .pdf file in Antigravity to open it here.');
+  setInterval(poll, POLL_MS);
+} catch (e) {
+  status('err', e.message);
+  showMessage('Failed to start PDF viewer:\n' + (e.stack || e.message));
+}
+</script>
+</body>
+</html>
