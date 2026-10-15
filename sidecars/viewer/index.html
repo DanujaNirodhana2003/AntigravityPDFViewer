@@ -7,17 +7,25 @@
   html, body { margin: 0; height: 100%; overflow: hidden;
     background: var(--background, #1e1e1e); color: var(--foreground, #ddd);
     font: 13px system-ui, sans-serif; }
+  
+  /* Toolbar */
   #bar { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px;
     border-bottom: 1px solid var(--border, #333); background: var(--sidebar, var(--background, #1e1e1e)); }
   #bar button { background: var(--secondary, #2d2d2d); color: var(--foreground, #ddd);
-    border: 1px solid var(--border, #444); border-radius: 4px; min-width: 26px; height: 24px; cursor: pointer; }
+    border: 1px solid var(--border, #444); border-radius: 4px; min-width: 26px; height: 24px; cursor: pointer;
+    font-size: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 6px; }
   #bar button:hover { background: var(--accent, #3a3a3a); }
+  #bar button.active { background: var(--primary, #007acc); color: #fff; border-color: var(--primary, #007acc); }
   #bar input { width: 38px; height: 20px; text-align: center; background: var(--background, #1e1e1e);
     color: var(--foreground, #ddd); border: 1px solid var(--border, #444); border-radius: 4px; }
-  #name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground, #999); }
+  #name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted-foreground, #999); font-weight: 500; }
   #dot { width: 8px; height: 8px; border-radius: 50%; background: #888; flex: none; }
   #dot.live { background: #3fb950; } #dot.busy { background: #d29922; } #dot.err { background: #f85149; }
+  .sep { width: 1px; height: 16px; background: var(--border, #444); margin: 0 2px; }
+
+  /* Canvas and Text Layer */
   #scroller { position: absolute; top: 37px; bottom: 0; left: 0; right: 0; overflow: auto; }
+  #scroller.pin-cursor .page { cursor: crosshair !important; }
   .pages { padding: 12px 0; }
   .page { margin: 0 auto 12px; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.5); position: relative; overflow: hidden; }
   .page canvas { display: block; position: absolute; top: 0; left: 0; }
@@ -25,6 +33,68 @@
   .textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
   .textLayer ::selection { background: rgba(0, 100, 255, 0.35); }
   #msg { padding: 24px; color: var(--muted-foreground, #999); white-space: pre-wrap; }
+
+  /* Floating Selection Pill */
+  #selPill { position: fixed; z-index: 100; display: none; background: var(--primary, #007acc); color: #fff;
+    padding: 5px 11px; border-radius: 16px; font-size: 12px; font-weight: 500; cursor: pointer;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.35); transform: translate(-50%, -100%); transition: opacity 0.15s ease;
+    user-select: none; }
+  #selPill:hover { opacity: 0.92; transform: translate(-50%, -100%) scale(1.04); }
+
+  /* Pins */
+  .pinBadge { position: absolute; transform: translate(-50%, -50%); width: 22px; height: 22px; border-radius: 50%;
+    background: #e53e3e; color: #fff; font-size: 11px; font-weight: bold; display: flex; align-items: center;
+    justify-content: center; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.4); z-index: 10; border: 2px solid #fff;
+    transition: transform 0.15s ease; user-select: none; }
+  .pinBadge:hover { transform: translate(-50%, -50%) scale(1.2); }
+
+  /* Modal Overlay */
+  #modalOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 150; display: none;
+    align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+  #commentModal { background: var(--sidebar, var(--background, #252526)); color: var(--foreground, #ddd);
+    width: 380px; max-width: 90vw; border-radius: 8px; border: 1px solid var(--border, #444);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.45); padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  #modalTitle { font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: space-between; }
+  #quoteBox { background: var(--background, #1e1e1e); border-left: 3px solid var(--primary, #007acc);
+    padding: 6px 10px; font-size: 12px; color: var(--muted-foreground, #aaa); max-height: 70px; overflow-y: auto;
+    font-style: italic; border-radius: 2px; }
+  #commentInput { width: 100%; height: 75px; box-sizing: border-box; background: var(--background, #1e1e1e);
+    color: var(--foreground, #ddd); border: 1px solid var(--border, #444); border-radius: 4px; padding: 8px;
+    font-family: inherit; font-size: 13px; resize: none; }
+  #commentInput:focus { outline: 1px solid var(--primary, #007acc); border-color: var(--primary, #007acc); }
+  .modalActions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+  .modalActions button { padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; border: 1px solid var(--border, #444); }
+  #copyPromptBtn { background: var(--primary, #007acc); color: #fff; border-color: var(--primary, #007acc); font-weight: 500; }
+  #copyPromptBtn:hover { opacity: 0.9; }
+  #savePinBtn { background: var(--secondary, #333); color: var(--foreground, #ddd); }
+  #savePinBtn:hover { background: var(--accent, #444); }
+  #cancelModalBtn { background: transparent; color: var(--muted-foreground, #999); border-color: transparent; }
+  #cancelModalBtn:hover { color: var(--foreground, #ddd); }
+
+  /* Drawer */
+  #drawer { position: fixed; top: 37px; right: -320px; width: 310px; bottom: 0; background: var(--sidebar, var(--background, #252526));
+    border-left: 1px solid var(--border, #444); z-index: 120; display: flex; flex-direction: column;
+    box-shadow: -4px 0 16px rgba(0,0,0,0.3); transition: right 0.25s ease; }
+  #drawer.open { right: 0; }
+  #drawerHead { padding: 10px 12px; font-weight: 600; border-bottom: 1px solid var(--border, #444);
+    display: flex; align-items: center; justify-content: space-between; }
+  #drawerList { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .noteCard { background: var(--background, #1e1e1e); border: 1px solid var(--border, #3a3a3a); border-radius: 6px; padding: 9px;
+    font-size: 12px; display: flex; flex-direction: column; gap: 4px; position: relative; }
+  .noteCard .meta { font-weight: 600; color: var(--primary, #4fc1ff); display: flex; justify-content: space-between; }
+  .noteCard .q { font-style: italic; color: var(--muted-foreground, #888); font-size: 11px; }
+  .noteCard .text { color: var(--foreground, #ddd); white-space: pre-wrap; margin-top: 2px; }
+  .noteCard .delBtn { cursor: pointer; color: #888; font-size: 13px; }
+  .noteCard .delBtn:hover { color: #f85149; }
+  #drawerFoot { padding: 10px; border-top: 1px solid var(--border, #444); display: flex; flex-direction: column; gap: 6px; }
+  #drawerFoot button { padding: 7px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; width: 100%; border: 1px solid var(--border, #444); }
+  #copyAllBtn { background: var(--primary, #007acc); color: #fff; border-color: var(--primary, #007acc); font-weight: 500; }
+
+  /* Toast */
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #238636; color: #fff;
+    padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: 500; box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    z-index: 200; display: none; opacity: 0; transition: opacity 0.2s ease; pointer-events: none; }
+  #toast.show { display: block; opacity: 1; }
 </style>
 </head>
 <body>
@@ -36,8 +106,48 @@
   <span id="zoomLbl">fit</span>
   <button id="zoomIn" title="Zoom in (+)">+</button>
   <button id="fit" title="Fit width (0)">↔</button>
+  <div class="sep"></div>
+  <button id="pinBtn" title="Point & Click Pin Mode (P)">📌 Pin</button>
+  <button id="notesToggleBtn" title="View all comments">💬 Notes (<span id="notesCount">0</span>)</button>
 </div>
+
 <div id="scroller"><div id="msg">Loading…</div></div>
+
+<!-- Floating selection pill -->
+<div id="selPill">💬 Comment for AI</div>
+
+<!-- Comment Modal -->
+<div id="modalOverlay">
+  <div id="commentModal">
+    <div id="modalTitle">
+      <span id="modalTitleText">💬 Comment on Page 1</span>
+      <span id="closeModalX" style="cursor:pointer; color:#888;">✕</span>
+    </div>
+    <div id="quoteBox" style="display:none;"></div>
+    <textarea id="commentInput" placeholder="Type instructions for the AI (e.g. 'Update this equation' or 'Fix this typo')..."></textarea>
+    <div class="modalActions">
+      <button id="cancelModalBtn">Cancel</button>
+      <button id="savePinBtn">📍 Save Pin</button>
+      <button id="copyPromptBtn">📋 Copy for Chat</button>
+    </div>
+  </div>
+</div>
+
+<!-- Notes Drawer -->
+<div id="drawer">
+  <div id="drawerHead">
+    <span>Document Notes</span>
+    <button id="closeDrawerBtn" style="min-width:20px; height:20px; background:transparent; border:none; cursor:pointer; color:#888;">✕</button>
+  </div>
+  <div id="drawerList"></div>
+  <div id="drawerFoot">
+    <button id="copyAllBtn">📋 Copy All Notes for AI</button>
+    <button id="clearAllBtn" style="background:transparent; color:#888;">Clear All Notes</button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast">📋 Copied! Paste into chat (Ctrl + V)</div>
 
 <script type="module">
 const $ = (id) => document.getElementById(id);
@@ -53,7 +163,7 @@ async function api(name, body) {
   return r.json();
 }
 
-// ---------- status ----------
+// ---------- status & toast ----------
 function status(kind, text) {
   $('dot').className = kind;
   $('dot').title = text || kind;
@@ -63,8 +173,16 @@ function showMessage(text) {
   const d = document.createElement('div'); d.id = 'msg'; d.textContent = text;
   scroller.appendChild(d);
 }
+let toastTimer;
+function showToast(text) {
+  const t = $('toast');
+  t.textContent = text || '📋 Copied to clipboard!';
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
 
-// ---------- PDF.js (bundled, loaded via blob URLs) ----------
+// ---------- PDF.js ----------
 let pdfjs;
 async function loadPdfjs() {
   const [lib, worker] = await Promise.all([api('vendor', { name: 'pdf' }), api('vendor', { name: 'worker' })]);
@@ -76,15 +194,34 @@ async function loadPdfjs() {
 // ---------- state ----------
 const params = new URLSearchParams(location.search);
 let file = params.get('file');
-let doc = null;            // current PDFDocumentProxy
-let pages = [];            // [{ el, canvas, page, vp, rendered, task }]
-let zoom = 'fit';          // 'fit' or a number
+let doc = null;
+let pages = [];            // [{ el, canvas, textDiv, page, vp, rendered, task }]
+let zoom = 'fit';
 let scale = 1;
-let loadedSig = null;      // "mtime:size" currently shown
-let pendingSig = null;     // change seen, waiting for it to be stable
-let failedSig = null;      // sig that failed to parse (don't retry until it changes)
+let loadedSig = null;
+let pendingSig = null;
+let failedSig = null;
 let busy = false;
 let observer = null;
+let pinMode = false;
+
+// Pins: [{ id, pageIndex, xRatio, yRatio, quote, text, timestamp }]
+let pins = [];
+
+function loadStoredPins() {
+  if (!file) return;
+  try {
+    const raw = sessionStorage.getItem('antigravity_pins_' + file);
+    pins = raw ? JSON.parse(raw) : [];
+  } catch(e) { pins = []; }
+  updateNotesCount();
+}
+function savePins() {
+  if (!file) return;
+  try { sessionStorage.setItem('antigravity_pins_' + file, JSON.stringify(pins)); } catch(e) {}
+  updateNotesCount();
+  renderPins();
+}
 
 const sigOf = (s) => `${s.mtimeMs}:${s.size}`;
 const b64ToBytes = (b64) => { const bin = atob(b64); const u = new Uint8Array(bin.length);
@@ -123,7 +260,6 @@ async function renderPage(p) {
   p.task = p.page.render({ canvasContext: p.canvas.getContext('2d'), viewport: p.vp,
                            transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : null });
   
-  // Render selectable text layer on top of canvas
   if (pdfjs.TextLayer && p.textDiv) {
     try {
       const textContentSource = p.page.streamTextContent({ includeMarkedContent: true });
@@ -134,14 +270,13 @@ async function renderPage(p) {
       });
       await textLayer.render();
     } catch (err) {
-      console.warn('TextLayer render error:', err);
+      console.warn('TextLayer error:', err);
     }
   }
 
   try { await p.task.promise; } catch (e) { if (e?.name !== 'RenderingCancelledException') console.warn(e); }
 }
 
-/** Builds a full page list for `newDoc` and swaps it in without flicker. */
 async function show(newDoc, pos) {
   const first = await newDoc.getPage(1);
   scale = computeScale(first);
@@ -167,11 +302,9 @@ async function show(newDoc, pos) {
     list.push({ el, canvas, textDiv, page, vp, rendered: false, task: null });
   }
 
-  // Pre-render the pages that will be visible, BEFORE swapping, so there is no blank flash.
   const idx = pos ? Math.min(pos.index, list.length - 1) : 0;
   await Promise.all(list.slice(Math.max(0, idx - 1), idx + 2).map(renderPage));
 
-  // Swap.
   const oldPages = pages, oldDoc = doc;
   observer?.disconnect();
   scroller.replaceChildren(container);
@@ -185,6 +318,7 @@ async function show(newDoc, pos) {
 
   $('pageCount').textContent = '/ ' + doc.numPages;
   updatePageNumber();
+  renderPins();
 
   oldPages.forEach((p) => p.task?.cancel());
   if (oldDoc && oldDoc !== newDoc) oldDoc.destroy();
@@ -199,7 +333,7 @@ async function loadFromDisk() {
   try {
     newDoc = await pdfjs.getDocument({ data: b64ToBytes(r.base64) }).promise;
   } catch (e) {
-    failedSig = sig;         // half-written or broken: keep showing the old version
+    failedSig = sig;
     throw new Error('Could not parse PDF (still being written?): ' + e.message);
   }
   await show(newDoc, savePosition());
@@ -214,7 +348,6 @@ async function poll() {
     if (!s.ok) { status(doc ? 'busy' : 'err', s.error); if (!doc) showMessage('Waiting for file…\n' + s.error); return; }
     const sig = sigOf(s);
     if (sig === loadedSig || sig === failedSig) { status('live', 'Up to date'); return; }
-    // Changed. Only reload once it has been stable for one full poll AND has %%EOF.
     if (sig === pendingSig && s.complete) {
       status('busy', 'Reloading…');
       await loadFromDisk();
@@ -232,7 +365,7 @@ async function poll() {
   }
 }
 
-// ---------- toolbar ----------
+// ---------- toolbar & zoom ----------
 function updatePageNumber() {
   if (!pages.length) return;
   const mid = scroller.scrollTop + scroller.clientHeight / 3;
@@ -257,10 +390,11 @@ $('fit').onclick = () => setZoom('fit');
 $('pageIn').onchange = (e) => goToPage(parseInt(e.target.value, 10));
 scroller.addEventListener('scroll', updatePageNumber, { passive: true });
 window.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT') return;
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
   if (e.key === '+' || e.key === '=') step(1);
   else if (e.key === '-') step(-1);
   else if (e.key === '0') setZoom('fit');
+  else if (e.key.toLowerCase() === 'p') togglePinMode();
 });
 scroller.addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return;
@@ -274,7 +408,234 @@ new ResizeObserver(() => {
   resizeTimer = setTimeout(() => show(doc, savePosition()), 150);
 }).observe(scroller);
 
-// ---------- host messages (theme, possible file switches) ----------
+// ---------- Point & Comment Features ----------
+
+let currentModalData = null; // { pageIndex, xRatio, yRatio, quote }
+
+function togglePinMode() {
+  pinMode = !pinMode;
+  $('pinBtn').classList.toggle('active', pinMode);
+  scroller.classList.toggle('pin-cursor', pinMode);
+  if (pinMode) hidePill();
+}
+$('pinBtn').onclick = togglePinMode;
+
+// Handle text selection
+document.addEventListener('selectionchange', () => {
+  if (pinMode) return;
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+    hidePill();
+    return;
+  }
+  const text = sel.toString().trim();
+  if (text.length < 1) { hidePill(); return; }
+
+  const range = sel.getRangeAt(0);
+  const rect = range.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) { hidePill(); return; }
+
+  let node = range.commonAncestorContainer;
+  while (node && (!node.classList || !node.classList.contains('page'))) {
+    node = node.parentElement;
+  }
+  if (!node) { hidePill(); return; }
+
+  const pageIndex = parseInt(node.dataset.index, 10);
+  const pageRect = node.getBoundingClientRect();
+  const xRatio = Math.max(0, Math.min(1, (rect.left + rect.width / 2 - pageRect.left) / pageRect.width));
+  const yRatio = Math.max(0, Math.min(1, (rect.top - pageRect.top) / pageRect.height));
+
+  showPill(rect, { pageIndex, xRatio, yRatio, quote: text });
+});
+
+function showPill(rect, data) {
+  const p = $('selPill');
+  currentModalData = data;
+  p.style.left = `${rect.left + rect.width / 2}px`;
+  p.style.top = `${rect.top - 8}px`;
+  p.style.display = 'block';
+}
+function hidePill() {
+  $('selPill').style.display = 'none';
+}
+
+$('selPill').onmousedown = (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  openCommentModal(currentModalData);
+  hidePill();
+};
+
+// Handle point clicking when Pin Mode is active
+scroller.addEventListener('click', (e) => {
+  if (!pinMode) return;
+  let target = e.target;
+  while (target && target !== scroller && (!target.classList || !target.classList.contains('page'))) {
+    target = target.parentElement;
+  }
+  if (!target || !target.classList.contains('page')) return;
+
+  const pageIndex = parseInt(target.dataset.index, 10);
+  const rect = target.getBoundingClientRect();
+  const xRatio = (e.clientX - rect.left) / rect.width;
+  const yRatio = (e.clientY - rect.top) / rect.height;
+
+  togglePinMode(); // disable pin mode once clicked
+  openCommentModal({ pageIndex, xRatio, yRatio, quote: '' });
+});
+
+function openCommentModal(data) {
+  currentModalData = data;
+  const pageNum = data.pageIndex + 1;
+  $('modalTitleText').textContent = `💬 Comment on Page ${pageNum}`;
+  if (data.quote) {
+    $('quoteBox').style.display = 'block';
+    $('quoteBox').textContent = `"${data.quote}"`;
+  } else {
+    $('quoteBox').style.display = 'none';
+  }
+  $('commentInput').value = data.text || '';
+  $('modalOverlay').style.display = 'flex';
+  setTimeout(() => $('commentInput').focus(), 50);
+}
+
+function closeCommentModal() {
+  $('modalOverlay').style.display = 'none';
+  currentModalData = null;
+}
+$('cancelModalBtn').onclick = closeCommentModal;
+$('closeModalX').onclick = closeCommentModal;
+$('modalOverlay').onclick = (e) => {
+  if (e.target === $('modalOverlay')) closeCommentModal();
+};
+
+// Copy single prompt formatted for Chat
+$('copyPromptBtn').onclick = () => {
+  if (!currentModalData) return;
+  const pageNum = currentModalData.pageIndex + 1;
+  const instruction = $('commentInput').value.trim();
+  const docName = file ? file.split(/[\\/]/).pop() : 'document.pdf';
+
+  let prompt = '';
+  if (currentModalData.quote) {
+    prompt = `> [${docName} - Page ${pageNum}] "${currentModalData.quote}"\n${instruction || 'Please review or update this section.'}`;
+  } else {
+    prompt = `> [${docName} - Page ${pageNum}]\n${instruction || 'Please review this page.'}`;
+  }
+
+  navigator.clipboard.writeText(prompt).then(() => {
+    showToast('📋 Copied to clipboard! Paste in chat (Ctrl + V)');
+    closeCommentModal();
+  });
+};
+
+// Save visual Pin
+$('savePinBtn').onclick = () => {
+  if (!currentModalData) return;
+  const text = $('commentInput').value.trim();
+  const newPin = {
+    id: 'pin_' + Date.now(),
+    pageIndex: currentModalData.pageIndex,
+    xRatio: currentModalData.xRatio,
+    yRatio: currentModalData.yRatio,
+    quote: currentModalData.quote || '',
+    text: text || '(No comment text)',
+    timestamp: new Date().toLocaleTimeString()
+  };
+  pins.push(newPin);
+  savePins();
+  closeCommentModal();
+  showToast('📍 Pin placed!');
+};
+
+// Render Visual Pins on Pages
+function renderPins() {
+  document.querySelectorAll('.pinBadge').forEach(b => b.remove());
+  pins.forEach((pin, idx) => {
+    const pageObj = pages[pin.pageIndex];
+    if (!pageObj || !pageObj.el) return;
+    const badge = document.createElement('div');
+    badge.className = 'pinBadge';
+    badge.textContent = idx + 1;
+    badge.title = `${pin.quote ? `"${pin.quote}"\n` : ''}${pin.text}`;
+    badge.style.left = `${pin.xRatio * 100}%`;
+    badge.style.top = `${pin.yRatio * 100}%`;
+    badge.onclick = (e) => {
+      e.stopPropagation();
+      openCommentModal({ ...pin, quote: pin.quote, text: pin.text });
+    };
+    pageObj.el.appendChild(badge);
+  });
+}
+
+// ---------- Drawer for Notes ----------
+function updateNotesCount() {
+  $('notesCount').textContent = pins.length;
+}
+
+$('notesToggleBtn').onclick = () => {
+  $('drawer').classList.toggle('open');
+  renderDrawerList();
+};
+$('closeDrawerBtn').onclick = () => {
+  $('drawer').classList.remove('open');
+};
+
+function renderDrawerList() {
+  const list = $('drawerList');
+  list.innerHTML = '';
+  if (!pins.length) {
+    list.innerHTML = '<div style="color:#888; font-size:12px; text-align:center; padding:20px;">No comments yet.<br><br>Highlight text or use 📌 Pin to add notes!</div>';
+    return;
+  }
+  pins.forEach((pin, idx) => {
+    const card = document.createElement('div');
+    card.className = 'noteCard';
+    card.innerHTML = `
+      <div class="meta">
+        <span>📍 #${idx + 1} — Page ${pin.pageIndex + 1}</span>
+        <span class="delBtn" title="Delete pin">✕</span>
+      </div>
+      ${pin.quote ? `<div class="q">"${pin.quote}"</div>` : ''}
+      <div class="text">${pin.text}</div>
+    `;
+    card.querySelector('.delBtn').onclick = (e) => {
+      e.stopPropagation();
+      pins.splice(idx, 1);
+      savePins();
+      renderDrawerList();
+    };
+    card.onclick = () => {
+      goToPage(pin.pageIndex + 1);
+      $('drawer').classList.remove('open');
+    };
+    list.appendChild(card);
+  });
+}
+
+// Copy all notes at once for AI
+$('copyAllBtn').onclick = () => {
+  if (!pins.length) return;
+  const docName = file ? file.split(/[\\/]/).pop() : 'document.pdf';
+  let fullPrompt = `Review notes for ${docName}:\n\n`;
+  pins.forEach((p, i) => {
+    fullPrompt += `${i + 1}. [Page ${p.pageIndex + 1}${p.quote ? ` | "${p.quote}"` : ''}]: ${p.text}\n`;
+  });
+  navigator.clipboard.writeText(fullPrompt.trim()).then(() => {
+    showToast('📋 All notes copied! Paste into chat (Ctrl + V)');
+    $('drawer').classList.remove('open');
+  });
+};
+
+$('clearAllBtn').onclick = () => {
+  if (!confirm('Clear all notes on this PDF?')) return;
+  pins = [];
+  savePins();
+  renderDrawerList();
+};
+
+// ---------- Host messages & start ----------
 window.addEventListener('message', (e) => {
   const m = e.data || {};
   if (m.type === 'theme-change' && m.payload?.cssVariables) {
@@ -284,13 +645,13 @@ window.addEventListener('message', (e) => {
   if (typeof f === 'string' && f !== file) openFile(f);
 });
 
-// ---------- start ----------
 async function openFile(f) {
   file = f;
   loadedSig = pendingSig = failedSig = null;
   const name = f.split(/[\\/]/).pop();
   $('name').textContent = name; $('name').title = f; document.title = name;
   status('busy', 'Loading…');
+  loadStoredPins();
   try { await loadFromDisk(); status('live', 'Up to date'); }
   catch (e) { status('err', e.message); if (!doc) showMessage(e.message); }
 }
