@@ -33,11 +33,11 @@
   #msg { padding: 24px; color: var(--muted-foreground, #999); white-space: pre-wrap; }
 
   /* Hover Plus Button (Exact Antigravity style) */
-  #hoverPlusBtn { position: absolute; z-index: 25; display: none; width: 22px; height: 22px; border-radius: 50%;
-    background: #ea8032; color: #101010; font-size: 15px; font-weight: bold; line-height: 20px; text-align: center;
-    cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.4); transform: translate(-50%, -50%); user-select: none;
-    transition: transform 0.1s ease; }
-  #hoverPlusBtn:hover { transform: translate(-50%, -50%) scale(1.15); background: #f39c59; }
+  #hoverPlusBtn { position: fixed; z-index: 100; display: none; width: 24px; height: 24px; border-radius: 50%;
+    background: #ea8032; color: #101010; font-size: 16px; font-weight: bold; line-height: 1; align-items: center; justify-content: center;
+    cursor: pointer; box-shadow: 0 3px 10px rgba(0,0,0,0.5); transform: translate(-50%, -50%); user-select: none;
+    border: 1.5px solid rgba(255,255,255,0.4); transition: transform 0.1s ease; }
+  #hoverPlusBtn:hover { transform: translate(-50%, -50%) scale(1.18); background: #f39c59; }
 
   /* Native Antigravity-style Inline Comment Box */
   .inlineCommentCard { position: absolute; z-index: 20; width: 88%; left: 6%; box-sizing: border-box;
@@ -348,10 +348,48 @@ new ResizeObserver(() => {
 const hoverPlus = $('hoverPlusBtn');
 let activeHoverTarget = null; // { pageIndex, yRatio, quote, clientX, clientY }
 let draftingCard = null;
+let isHoveringPlus = false;
+
+hoverPlus.addEventListener('mouseenter', () => { isHoveringPlus = true; });
+hoverPlus.addEventListener('mouseleave', () => { isHoveringPlus = false; });
+
+// When user selects text, immediately anchor the (+) button near the selection
+document.addEventListener('selectionchange', () => {
+  if (draftingCard || isHoveringPlus) return;
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+
+  const range = sel.getRangeAt(0);
+  const rect = range.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+
+  let pageNode = range.commonAncestorContainer;
+  while (pageNode && (!pageNode.classList || !pageNode.classList.contains('page'))) {
+    pageNode = pageNode.parentElement;
+  }
+  if (!pageNode) return;
+
+  const pageIndex = parseInt(pageNode.dataset.index, 10);
+  const pageRect = pageNode.getBoundingClientRect();
+  const yRatio = Math.max(0.02, Math.min(0.95, (rect.top - pageRect.top) / pageRect.height));
+
+  activeHoverTarget = { pageIndex, yRatio, quote: sel.toString().trim(), pageNode };
+
+  hoverPlus.style.display = 'flex';
+  hoverPlus.style.left = `${Math.max(16, pageRect.left + 16)}px`;
+  hoverPlus.style.top = `${rect.top + 10}px`;
+});
 
 // Track mouse position over pages to show the (+) button on lines
 scroller.addEventListener('mousemove', (e) => {
-  if (draftingCard) { hoverPlus.style.display = 'none'; return; }
+  if (draftingCard || isHoveringPlus) return;
+
+  // If already visible and cursor is within 42px of button, FREEZE position so it doesn't vanish while moving towards it!
+  if (hoverPlus.style.display === 'flex') {
+    const bRect = hoverPlus.getBoundingClientRect();
+    const dist = Math.hypot(e.clientX - (bRect.left + bRect.width / 2), e.clientY - (bRect.top + bRect.height / 2));
+    if (dist < 42) return;
+  }
   
   // Check if hovering over a page
   let target = e.target;
@@ -361,7 +399,7 @@ scroller.addEventListener('mousemove', (e) => {
     target = target.parentElement;
   }
   if (!pageNode) {
-    hoverPlus.style.display = 'none';
+    if (!isHoveringPlus) hoverPlus.style.display = 'none';
     return;
   }
 
@@ -374,7 +412,6 @@ scroller.addEventListener('mousemove', (e) => {
     quote = e.target.textContent.trim();
   }
 
-  // Also check if text is actively selected
   const sel = window.getSelection();
   if (sel && !sel.isCollapsed && sel.toString().trim()) {
     quote = sel.toString().trim();
@@ -385,19 +422,22 @@ scroller.addEventListener('mousemove', (e) => {
 
   activeHoverTarget = { pageIndex, yRatio, quote, pageNode };
 
-  hoverPlus.style.display = 'block';
+  hoverPlus.style.display = 'flex';
   hoverPlus.style.left = `${pageRect.left + 16}px`;
   hoverPlus.style.top = `${yPos}px`;
 });
 
-scroller.addEventListener('mouseleave', () => {
-  if (!draftingCard) hoverPlus.style.display = 'none';
+scroller.addEventListener('mouseleave', (e) => {
+  if (draftingCard || isHoveringPlus) return;
+  if (e.relatedTarget === hoverPlus || hoverPlus.contains(e.relatedTarget)) return;
+  hoverPlus.style.display = 'none';
 });
 
 // Click (+) to open the Antigravity inline comment card
 hoverPlus.addEventListener('click', (e) => {
   e.stopPropagation();
   hoverPlus.style.display = 'none';
+  isHoveringPlus = false;
   if (!activeHoverTarget) return;
   createDraftingComment(activeHoverTarget);
 });
